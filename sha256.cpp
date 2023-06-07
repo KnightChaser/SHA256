@@ -1,12 +1,14 @@
-// C++ 20 Standard
+// Written in C++ 20
+// @KnightChaser
 
 #include <iostream>
 #include <vector>
 #include <string>
 #include <assert.h>
-#include <bitset>
 #include <cmath>
 #include <array>
+#include <sstream>
+#include <iomanip>
 using namespace std;
 
 template <typename Tx>
@@ -25,8 +27,13 @@ public:
 	uint32_t            rightRotate(uint32_t _x, uint32_t n);
 
 	vector<uint8_t>     messagePreProcess(const string messageInput);
-	vector<uint32_t>    makeInitializeHashValues();                             // H[x] (Size: 8)
+	array<uint32_t, 8>  makeInitializeHashValues();                             // H[x] (Size: 8)
 	vector<uint32_t>    makeInitializeRoundConstants();                         // K[x] (Size: 64)
+    array<uint32_t, 64> createWArray(const uint8_t (&M)[64]);
+    array<uint32_t, 8>  SHA256Round(array<uint32_t, 8>const& Hs, uint32_t Ks, uint32_t Ws);
+    array<uint32_t, 8>  SHA256Process(vector<uint8_t> const& message);
+    string              SHA256HexConvert(array<uint32_t, 8> const& SHA256RawDigest);
+    string              getSHA256HexHash(const string message);
 
 	uint32_t            changeEndian(uint32_t x);
 	uint64_t            changeEndian(uint64_t x);
@@ -49,6 +56,40 @@ uint64_t SHA256::changeEndian(uint64_t x) {
 	return (x << 32) | (x >> 32);
 }
 
+uint32_t SHA256::rightRotate(uint32_t _x, uint32_t n) {
+	return (_x >> n) | (_x << (32 - n));
+}
+
+uint32_t SHA256::sigma0(uint32_t _x) {
+	uint32_t result = SHA256::rightRotate(_x, 7) ^ SHA256::rightRotate(_x, 18) ^ (_x >> 3);
+	return result;
+}
+
+uint32_t SHA256::sigma1(uint32_t _x) {
+	uint32_t result = SHA256::rightRotate(_x, 17) ^ SHA256::rightRotate(_x, 19) ^ (_x >> 10);
+	return result;
+}
+
+uint32_t SHA256::bigSigma0(uint32_t _x) {
+	uint32_t result = SHA256::rightRotate(_x, 2) ^ SHA256::rightRotate(_x, 13) ^ SHA256::rightRotate(_x, 22);
+	return result;
+}
+
+uint32_t SHA256::bigSigma1(uint32_t _x) {
+	uint32_t result = SHA256::rightRotate(_x, 6) ^ SHA256::rightRotate(_x, 11) ^ SHA256::rightRotate(_x, 25);
+	return result;
+}
+
+uint32_t SHA256::choose(uint32_t _x, uint32_t _y, uint32_t _z) {
+	uint32_t result = (_x & _y) ^ (~_x & _z);
+	return result;
+}
+
+uint32_t SHA256::majority(uint32_t _x, uint32_t _y, uint32_t _z) {
+	uint32_t result = (_x & _y) ^ (_x & _z) ^ (_y & _z);
+	return result;
+}
+
 vector<uint8_t> SHA256::messagePreProcess(const string messageInput) {
 
 	vector<uint8_t> message(messageInput.begin(), messageInput.end());
@@ -67,7 +108,7 @@ vector<uint8_t> SHA256::messagePreProcess(const string messageInput) {
 
 	// Append the bit length of original message, at the last part of the transformed message vector
 	assert(messageLength <= UINT64_MAX / 8);    // must be true (not overflowing)
-	uint64_t bitLengthInBigEndian = SHA256::changeEndian(messageLength * 8);      // byte to bit
+	uint64_t bitLengthInBigEndian = SHA256::changeEndian((uint64_t)messageLength * 8);      // byte to bit
 	auto bitLengthDataPtr = reinterpret_cast<uint8_t *>(&bitLengthInBigEndian);
 
 	message.insert(end(message), bitLengthDataPtr, bitLengthDataPtr + 8);       // put the length data
@@ -77,7 +118,9 @@ vector<uint8_t> SHA256::messagePreProcess(const string messageInput) {
 
 }
 
-vector<uint32_t> SHA256::makeInitializeHashValues() {
+
+// H
+array<uint32_t, 8> SHA256::makeInitializeHashValues() {
 
 	// h0 = 0x6a09e667
 	// h1 = 0xbb67ae85
@@ -94,7 +137,7 @@ vector<uint32_t> SHA256::makeInitializeHashValues() {
 	const int primesForSHA256Hx[] = { 2, 3, 5, 7, 11, 13, 17, 19 };
 	static_assert(sizeof(primesForSHA256Hx) / sizeof(*primesForSHA256Hx) == 8, "");     // Should be assured
 
-	vector<uint32_t> HValues;
+	array<uint32_t, 8> HValues;
 
 	for (int _seq = 0; _seq < 8; ++_seq) {
 		double Hx = sqrt(primesForSHA256Hx[_seq]);
@@ -102,12 +145,13 @@ vector<uint32_t> SHA256::makeInitializeHashValues() {
 		Hx -= static_cast<uint32_t>(Hx);    // remove numbers >= 1
 		Hx *= pow(16, 8);                   // extract 32 bit since the decimal point
 
-		HValues.push_back(static_cast<uint32_t>(Hx));
+		HValues[_seq] = static_cast<uint32_t>(Hx);
 	}
 
 	return HValues;
 }
 
+// K
 vector<uint32_t> SHA256::makeInitializeRoundConstants() {
 
 	// 0x428a2f98 0x71374491 0xb5c0fbcf 0xe9b5dba5 0x3956c25b 0x59f111f1 0x923f82a4 0xab1c5ed5
@@ -147,52 +191,98 @@ vector<uint32_t> SHA256::makeInitializeRoundConstants() {
 
 }
 
-uint32_t SHA256::rightRotate(uint32_t _x, uint32_t n) {
-	return (_x >> n) | (_x << (32 - n));
+// W and MEXP(Message Expansion Function)
+array<uint32_t, 64> SHA256::createWArray(const uint8_t (&M)[64]) {
+    
+    array<uint32_t, 64> WValues;
+    
+    // Just use 0 ~ 15
+    for(int _seq = 0; _seq < 16; ++_seq)
+        WValues[_seq] = SHA256::changeEndian(reinterpret_cast<uint32_t const&>(M[_seq * 4]));
+        
+    // Run MEXP for other elements of W
+    for(int _seq = 16; _seq < 65; ++_seq)
+        WValues[_seq] = SHA256::sigma1(WValues[_seq - 2]) + WValues[_seq - 7] + SHA256::sigma0(WValues[_seq - 15]) + WValues[_seq - 16];
+        
+    return WValues;
+    
 }
 
-uint32_t SHA256::sigma0(uint32_t _x) {
-	uint32_t result = SHA256::rightRotate(_x, 7) ^ SHA256::rightRotate(_x, 18) ^ (_x >> 3);
-	return result;
+// SHA256 round
+array<uint32_t, 8> SHA256::SHA256Round(array<uint32_t, 8>const& Hs, uint32_t Ks, uint32_t Ws) {
+    
+    array<uint32_t, 8> nextH;
+    
+    auto majority = SHA256::majority(Hs[0], Hs[1], Hs[2]);
+    auto choose   = SHA256::choose(Hs[4], Hs[5], Hs[6]);
+    auto s        = Ks + SHA256::bigSigma1(Hs[4]) + choose + Hs[7] + Ws;
+    
+    nextH[0] = SHA256::bigSigma0(Hs[0]) + majority + s;
+    nextH[1] = Hs[0];
+    nextH[2] = Hs[1];
+    nextH[3] = Hs[2];
+    nextH[4] = Hs[3] + s;
+    nextH[5] = Hs[4];
+    nextH[6] = Hs[5];
+    nextH[7] = Hs[6];
+    
+    return nextH;
+    
 }
 
-uint32_t SHA256::sigma1(uint32_t _x) {
-	uint32_t result = SHA256::rightRotate(_x, 17) ^ SHA256::rightRotate(_x, 19) ^ (_x >> 10);
-	return result;
+// Real process, including 64 rounds to elicit the SHA256 hash digest output.
+array<uint32_t, 8> SHA256::SHA256Process(vector<uint8_t> const& message) {
+    
+    assert(message.size() % 64 == 0);       // should be guaranteed for proper process
+    
+    const auto Ks       = SHA256::makeInitializeRoundConstants();
+    auto digest         = SHA256::makeInitializeHashValues();
+    const auto blockQty = message.size() / 64;
+    
+    for (int _seq = 0; _seq < blockQty; ++_seq) {
+        auto Ws = SHA256::createWArray(reinterpret_cast<const uint8_t(&)[64]>(message[_seq * 64]));
+        auto Hs = digest;
+        
+        for (int _round_seq = 0; _round_seq < 64; ++_round_seq)
+            Hs = SHA256::SHA256Round(Hs, Ks[_round_seq], Ws[_round_seq]);
+            
+        for (int _digest_seq = 0; _digest_seq < 8; ++_digest_seq)
+            digest[_digest_seq] += Hs[_digest_seq];
+    }
+    
+    return digest;
+    
 }
 
-uint32_t SHA256::bigSigma0(uint32_t _x) {
-	uint32_t result = SHA256::rightRotate(_x, 2) ^ SHA256::rightRotate(_x, 13) ^ SHA256::rightRotate(_x, 22);
-	return result;
+// Convert raw hash digest 
+string SHA256::SHA256HexConvert(array<uint32_t, 8> const& SHA256RawDigest) {
+    
+    stringstream SHA256HexDigest;
+    
+    for (auto element : SHA256RawDigest)
+        SHA256HexDigest << std::setfill('0') << std::setw(8) << hex << element;
+        
+    return SHA256HexDigest.str();
 }
 
-uint32_t SHA256::bigSigma1(uint32_t _x) {
-	uint32_t result = SHA256::rightRotate(_x, 6) ^ SHA256::rightRotate(_x, 11) ^ SHA256::rightRotate(_x, 25);
-	return result;
-}
+// Integrate the whole process
+string SHA256::getSHA256HexHash(const string message) {
+    
+    SHA256 sha256;
+    
+    vector<uint8_t> encodedMessage = sha256.messagePreProcess(message); 
+    auto digest = sha256.SHA256Process(encodedMessage);
+    return sha256.SHA256HexConvert(digest);                 // hexadecimal form of SHA-256
 
-uint32_t SHA256::choose(uint32_t _x, uint32_t _y, uint32_t _z) {
-	uint32_t result = (_x & _y) ^ (~_x & _z);
-	return result;
-}
-
-uint32_t SHA256::majority(uint32_t _x, uint32_t _y, uint32_t _z) {
-	uint32_t result = (_x & _y) ^ (_x & _z) ^ (_y & _z);
-	return result;
 }
 
 int main() {
     
-	SHA256 sha256;
+	SHA256 getSHA256Hash;
 	
-	vector<uint8_t> encodedMessage = sha256.messagePreProcess("Hello World");
-	for (uint8_t element : encodedMessage) {
-		cout << bitset<8>(element) << endl;
-	}
-	
-	// 	vector<uint32_t> hash = sha256.SHA256Process(encodedMessage);
-
-	// 	cout << hash << endl;
+	cout << getSHA256Hash.getSHA256HexHash("Hello World!") << endl;
+	cout << getSHA256Hash.getSHA256HexHash("F#ck up the tomorrow's exam LMAO :)") << endl;
 
 
 }
+
