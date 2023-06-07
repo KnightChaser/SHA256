@@ -11,16 +11,6 @@
 #include <iomanip>
 using namespace std;
 
-template <typename Tx>
-ostream& operator<< (ostream& os, vector<Tx> inputVector) {
-
-	for (Tx element : inputVector)
-		os << element << " ";
-
-	return os;
-
-}
-
 class SHA256 {
 private:
 public:
