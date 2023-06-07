@@ -29,11 +29,11 @@ public:
 	vector<uint8_t>     messagePreProcess(const string messageInput);
 	array<uint32_t, 8>  makeInitializeHashValues();                             // H[x] (Size: 8)
 	vector<uint32_t>    makeInitializeRoundConstants();                         // K[x] (Size: 64)
-    array<uint32_t, 64> createWArray(const uint8_t (&M)[64]);
-    array<uint32_t, 8>  SHA256Round(array<uint32_t, 8>const& Hs, uint32_t Ks, uint32_t Ws);
-    array<uint32_t, 8>  SHA256Process(vector<uint8_t> const& message);
-    string              SHA256HexConvert(array<uint32_t, 8> const& SHA256RawDigest);
-    string              getSHA256HexHash(const string message);
+	array<uint32_t, 64> createWArray(const uint8_t (&M)[64]);
+	array<uint32_t, 8>  SHA256Round(array<uint32_t, 8>const& Hs, uint32_t Ks, uint32_t Ws);
+	array<uint32_t, 8>  SHA256Process(vector<uint8_t> const& message);
+	string              SHA256HexConvert(array<uint32_t, 8> const& SHA256RawDigest);
+	string              getSHA256HexHash(const string message);
 
 	uint32_t            changeEndian(uint32_t x);
 	uint64_t            changeEndian(uint64_t x);
